@@ -1,8 +1,4 @@
-# Author: Alexandre Gramfort <alexandre.gramfort@inria.fr>
-#         Denis Engemann <denis.engemann@gmail.com>
-#         Andrew Dykstra <andrew.r.dykstra@gmail.com>
-#         Mads Jensen <mje.mads@gmail.com>
-#
+# Authors: The MNE-Python contributors.
 # License: BSD-3-Clause
 # Copyright the MNE-Python contributors.
 
@@ -23,6 +19,7 @@ from scipy import fftpack
 from mne import (
     Epochs,
     EpochsArray,
+    SourceEstimate,
     combine_evoked,
     create_info,
     equalize_channels,
@@ -764,7 +761,7 @@ def test_array_epochs(tmp_path):
     rng = np.random.RandomState(42)
     data1 = rng.randn(20, 60)
     sfreq = 1e3
-    ch_names = ["EEG %03d" % (i + 1) for i in range(20)]
+    ch_names = [f"EEG {i + 1:03}" for i in range(20)]
     types = ["eeg"] * 20
     info = create_info(ch_names, sfreq, types)
     evoked1 = EvokedArray(data1, info, tmin=-0.01)
@@ -799,7 +796,7 @@ def test_array_epochs(tmp_path):
         EvokedArray(data1, info, kind="mean")
 
     # test match between channels info and data
-    ch_names = ["EEG %03d" % (i + 1) for i in range(19)]
+    ch_names = [f"EEG {i + 1:03}" for i in range(19)]
     types = ["eeg"] * 19
     info = create_info(ch_names, sfreq, types)
     pytest.raises(ValueError, EvokedArray, data1, info, tmin=-0.01)
@@ -917,7 +914,7 @@ def test_evoked_baseline(tmp_path):
 
 
 def test_hilbert():
-    """Test hilbert on raw, epochs, and evoked."""
+    """Test hilbert on raw, epochs, evoked and SourceEstimate data."""
     raw = read_raw_fif(raw_fname).load_data()
     raw.del_proj()
     raw.pick(raw.ch_names[:2])
@@ -927,10 +924,17 @@ def test_hilbert():
         epochs.apply_hilbert()
     epochs.load_data()
     evoked = epochs.average()
+    # Create SourceEstimate stc data
+    verts = [np.arange(10), np.arange(90)]
+    data = np.random.default_rng(0).normal(size=(100, 10))
+    stc = SourceEstimate(data, verts, 0, 1e-1, "foo")
+
     raw_hilb = raw.apply_hilbert()
     epochs_hilb = epochs.apply_hilbert()
     evoked_hilb = evoked.copy().apply_hilbert()
     evoked_hilb_2_data = epochs_hilb.get_data(copy=False).mean(0)
+    stc_hilb = stc.copy().apply_hilbert()
+    stc_hilb_env = stc.copy().apply_hilbert(envelope=True)
     assert_allclose(evoked_hilb.data, evoked_hilb_2_data)
     # This one is only approximate because of edge artifacts
     evoked_hilb_3 = Epochs(raw_hilb, events).average()
@@ -941,6 +945,8 @@ def test_hilbert():
     # envelope=True mode
     evoked_hilb_env = evoked.apply_hilbert(envelope=True)
     assert_allclose(evoked_hilb_env.data, np.abs(evoked_hilb.data))
+    assert len(stc_hilb.data) == len(stc.data)
+    assert_allclose(stc_hilb_env.data, np.abs(stc_hilb.data))
 
 
 def test_apply_function_evk():

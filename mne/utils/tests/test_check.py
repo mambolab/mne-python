@@ -1,7 +1,6 @@
 """Test check utilities."""
-# Authors: MNE Developers
-#          Stefan Appelhoff <stefan.appelhoff@mailbox.org>
-#
+
+# Authors: The MNE-Python contributors.
 # License: BSD-3-Clause
 # Copyright the MNE-Python contributors.
 
@@ -29,6 +28,7 @@ from mne.utils import (
     _path_like,
     _record_warnings,
     _safe_input,
+    _soft_import,
     _suggest,
     _validate_type,
     catch_logging,
@@ -373,3 +373,9 @@ def test_check_sphere_verbose():
         _check_sphere("auto", info)
     with mne.use_log_level("error"):
         _check_sphere("auto", info)
+
+
+def test_soft_import():
+    """Test _soft_import."""
+    with pytest.raises(RuntimeError, match=r".* the module mne>=999 \(found version.*"):
+        _soft_import("mne", "testing", min_version="999")

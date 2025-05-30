@@ -1,4 +1,5 @@
 #
+# Authors: The MNE-Python contributors.
 # License: BSD-3-Clause
 # Copyright the MNE-Python contributors.
 
@@ -72,7 +73,7 @@ from mne.minimum_norm import (
     read_inverse_operator,
 )
 from mne.morph_map import _make_morph_map_hemi
-from mne.source_estimate import _get_vol_mask, grade_to_tris
+from mne.source_estimate import _get_vol_mask, _make_stc, grade_to_tris
 from mne.source_space._source_space import _get_src_nn
 from mne.transforms import apply_trans, invert_transform, transform_surface_to
 from mne.utils import (
@@ -232,7 +233,7 @@ def test_volume_stc(tmp_path):
     assert isinstance(stc, VolSourceEstimate)
 
     assert "sample" in repr(stc)
-    assert " kB" in repr(stc)
+    assert " KiB" in repr(stc)
 
     stc_new = stc
     fname_temp = tmp_path / ("temp-vl.stc")
@@ -240,7 +241,7 @@ def test_volume_stc(tmp_path):
         stc.save(fname_vol, ftype="whatever", overwrite=True)
     for ftype in ["w", "h5"]:
         for _ in range(2):
-            fname_temp = tmp_path / ("temp-vol.%s" % ftype)
+            fname_temp = tmp_path / f"temp-vol.{ftype}"
             stc_new.save(fname_temp, ftype=ftype, overwrite=True)
             stc_new = read_source_estimate(fname_temp)
             assert isinstance(stc_new, VolSourceEstimate)
@@ -960,7 +961,7 @@ def test_extract_label_time_course_volume(
             assert repr(missing) in log
         else:
             assert "does not contain" not in log
-        assert "\n%d/%d atlas regions had at least" % (n_want, n_tot) in log
+        assert f"\n{n_want}/{n_tot} atlas regions had at least" in log
         assert len(label_tc) == 1
         label_tc = label_tc[0]
         assert label_tc.shape == (n_tot,) + end_shape
@@ -1462,7 +1463,7 @@ def test_source_estime_project(real):
     want_nn /= np.linalg.norm(want_nn, axis=1, keepdims=True)
 
     stc = VolVectorSourceEstimate(data, [np.arange(n_src)], 0, 1)
-    stc_max, directions = stc.project("pca")
+    _, directions = stc.project("pca")
     flips = np.sign(np.sum(directions * want_nn, axis=1, keepdims=True))
     directions *= flips
     assert_allclose(directions, want_nn, atol=2e-6)
@@ -1521,9 +1522,6 @@ def invs():
     expected_nn = np.concatenate([_get_src_nn(s) for s in fwd["src"]])
     assert_allclose(fixed["source_nn"], expected_nn, atol=1e-7)
     return evoked, free, free_surf, freeish, fixed, fixedish
-
-
-bad_normal = pytest.param("normal", marks=pytest.mark.xfail(raises=AssertionError))
 
 
 @pytest.mark.parametrize("pick_ori", [None, "normal", "vector"])
@@ -1610,7 +1608,7 @@ def test_vol_adjacency():
     n_vertices = vol[0]["inuse"].sum()
     assert_equal(adjacency.shape, (n_vertices, n_vertices))
     assert np.all(adjacency.data == 1)
-    assert isinstance(adjacency, sparse.coo_matrix)
+    assert isinstance(adjacency, sparse.coo_array)
 
     adjacency2 = spatio_temporal_src_adjacency(vol, n_times=2)
     assert_equal(adjacency2.shape, (2 * n_vertices, 2 * n_vertices))
@@ -1713,8 +1711,7 @@ def test_stc_near_sensors(tmp_path):
     for s in src:
         transform_surface_to(s, "head", trans, copy=False)
     assert src[0]["coord_frame"] == FIFF.FIFFV_COORD_HEAD
-    with pytest.warns(DeprecationWarning, match="instead of the pial"):
-        stc_src = stc_near_sensors(evoked, src=src, **kwargs)
+    stc_src = stc_near_sensors(evoked, src=src, **kwargs)
     assert len(stc_src.data) == 7928
     with pytest.warns(RuntimeWarning, match="not included"):  # some removed
         stc_src_full = compute_source_morph(
@@ -2055,3 +2052,31 @@ def test_label_extraction_subject(kind):
         stc.subject = None
         with pytest.raises(ValueError, match=r"label\.sub.*not match.* sour"):
             extract_label_time_course(stc, labels_fs, src)
+
+
+def test_apply_function_stc():
+    """Check the apply_function method for source estimate data."""
+    # Create a sample _BaseSourceEstimate object
+    n_vertices = 100
+    n_times = 200
+    vertices = [np.array(np.arange(50)), np.array(np.arange(50, 100))]
+    tmin = 0.0
+    tstep = 0.001
+    data = np.random.default_rng(0).normal(size=(n_vertices, n_times))
+
+    stc = _make_stc(data, vertices, tmin=tmin, tstep=tstep, src_type="surface")
+
+    # A sample function to apply to the data
+    def fun(data_row, **kwargs):
+        return 2 * data_row
+
+    # Test applying the function to all vertices without parallelization
+    stc_copy = stc.copy()
+    stc.apply_function(fun)
+    for idx in range(n_vertices):
+        assert_allclose(stc.data[idx, :], 2 * stc_copy.data[idx, :])
+
+    # Test applying the function with parallelization
+    stc.apply_function(fun, n_jobs=2)
+    for idx in range(n_vertices):
+        assert_allclose(stc.data[idx, :], 4 * stc_copy.data[idx, :])
